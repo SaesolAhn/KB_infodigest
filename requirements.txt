@@ -1,0 +1,28 @@
+# InfoDigest Bot Dependencies
+
+# Telegram Bot (async version)
+python-telegram-bot>=21.0
+
+# AI Provider - OpenAI compatible client (Qwen/OpenAI)
+openai>=1.40.0
+
+# MongoDB
+pymongo>=4.6.0
+
+# Content Extraction
+youtube-transcript-api>=0.6.2    # YouTube transcript extraction
+trafilatura>=1.12.0              # Web page content extraction
+pypdf>=4.0.0                     # PDF text extraction
+
+# Admin Dashboard
+streamlit>=1.39.0
+
+# Configuration
+python-dotenv>=1.0.0
+
+# HTTP requests (for PDF downloads)
+httpx>=0.27.0
+
+# Utilities
+aiofiles>=24.1.0                 # Async file operations
+
