@@ -1,5 +1,5 @@
 # Services module for InfoDigest Bot
-# Contains extraction, LLM, and database services
+# Contains extraction, LLM, and cache services
 
 from .extractor import (
     ContentExtractor,
@@ -9,7 +9,7 @@ from .extractor import (
     WebExtractionError,
 )
 from .llm import LLMService, LLMError
-from .database import DatabaseService, DatabaseError
+from .cache import CacheService, CacheError
 
 __all__ = [
     "ContentExtractor",
@@ -19,7 +19,7 @@ __all__ = [
     "WebExtractionError",
     "LLMService",
     "LLMError",
-    "DatabaseService",
-    "DatabaseError",
+    "CacheService",
+    "CacheError",
 ]
 

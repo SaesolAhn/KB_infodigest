@@ -6,9 +6,6 @@ python-telegram-bot>=21.0
 # AI Provider - OpenAI compatible client (Qwen/OpenAI)
 openai>=1.40.0
 
-# MongoDB
-pymongo>=4.6.0
-
 # Content Extraction
 youtube-transcript-api>=0.6.2    # YouTube transcript extraction
 trafilatura>=1.12.0              # Web page content extraction

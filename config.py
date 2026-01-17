@@ -25,10 +25,9 @@ class Config:
     # Telegram Bot
     telegram_token: str
     
-    # MongoDB
-    mongodb_uri: str = "mongodb://localhost:27017"
-    mongodb_database: str = "infodigest"
-    mongodb_collection: str = "digest_logs"
+    # Cache settings
+    cache_dir: str = "cache"  # Directory for cache files
+    cache_ttl_days: Optional[int] = None  # Cache TTL in days (None = no expiration)
     
     # Processing limits
     max_text_length: int = 100000  # Max characters to send to LLM
@@ -52,11 +51,14 @@ class Config:
                 f"Missing required environment variables: {', '.join(missing)}"
             )
         
+        # Parse cache TTL (optional)
+        cache_ttl = os.getenv("CACHE_TTL_DAYS")
+        cache_ttl_days = int(cache_ttl) if cache_ttl else None
+        
         return cls(
             telegram_token=telegram_token,
-            mongodb_uri=os.getenv("MONGODB_URI", "mongodb://localhost:27017"),
-            mongodb_database=os.getenv("MONGODB_DATABASE", "infodigest"),
-            mongodb_collection=os.getenv("MONGODB_COLLECTION", "digest_logs"),
+            cache_dir=os.getenv("CACHE_DIR", "cache"),
+            cache_ttl_days=cache_ttl_days,
             max_text_length=int(os.getenv("MAX_TEXT_LENGTH", "100000")),
             request_timeout=int(os.getenv("REQUEST_TIMEOUT", "30")),
         )

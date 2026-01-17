@@ -24,7 +24,7 @@ from services.extractor import (
     PDFExtractionError,
 )
 from services.llm import LLMService, LLMError
-from services.database import DatabaseService, DatabaseError
+from services.cache import CacheService, CacheError
 from utils.validators import extract_url_from_text, get_content_type
 
 # Configure logging
@@ -45,12 +45,10 @@ class InfoDigestBot:
         self.config = get_config()
         self.extractor = ContentExtractor(timeout=self.config.request_timeout)
         self.llm = LLMService()
-        self.db = DatabaseService(
-            uri=self.config.mongodb_uri,
-            database=self.config.mongodb_database,
-            collection=self.config.mongodb_collection
+        self.cache = CacheService(
+            cache_dir=self.config.cache_dir,
+            default_ttl_days=self.config.cache_ttl_days
         )
-        self.db.connect()
     
     async def start_command(
         self,
@@ -117,6 +115,16 @@ class InfoDigestBot:
             )
             return
         
+        # Check cache first
+        cached = self.cache.get(url)
+        if cached:
+            logger.info(f"Cache hit for URL: {url}")
+            await update.message.reply_text(
+                cached['summary'],
+                parse_mode="Markdown"
+            )
+            return
+        
         # Send processing indicator
         processing_msg = await update.message.reply_text(
             "🔄 Processing your link... Please wait."
@@ -179,21 +187,20 @@ class InfoDigestBot:
         # Calculate processing time
         processing_time_ms = int((time.time() - start_time) * 1000)
         
-        # Step 4: Log to database
-        try:
-            self.db.save_log(
-                url=url,
-                title=title or "Unknown",
-                content_type=content_type or "web",
-                summary=summary,
-                raw_text_length=raw_text_length,
-                chat_id=chat_id,
-                message_id=processing_msg.message_id,
-                processing_time_ms=processing_time_ms,
-                error=error_message,
-            )
-        except DatabaseError as e:
-            logger.error(f"Failed to save log: {e}")
+        # Step 4: Cache the result (only if successful)
+        if summary and not error_message:
+            try:
+                self.cache.set(
+                    url=url,
+                    summary=summary,
+                    title=title or "Unknown",
+                    content_type=content_type or "web",
+                    raw_text_length=raw_text_length,
+                    processing_time_ms=processing_time_ms,
+                )
+                logger.info(f"Cached summary for URL: {url}")
+            except CacheError as e:
+                logger.warning(f"Failed to cache result: {e}")
     
     def run(self) -> None:
         """Start the bot polling loop."""
@@ -223,7 +230,6 @@ class InfoDigestBot:
     def cleanup(self) -> None:
         """Clean up resources."""
         self.extractor.close()
-        self.db.close()
 
 
 def main():

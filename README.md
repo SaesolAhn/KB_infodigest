@@ -8,7 +8,8 @@ reviewing past summaries.
 - Telegram bot that accepts URLs and returns structured summaries
 - Supports web pages, YouTube videos (with captions), and PDF documents
 - Provider-agnostic AI client (Qwen or OpenAI via `ai_client.py`)
-- MongoDB logging with an admin dashboard
+- URL caching to avoid re-processing the same URLs
+- Streamlit dashboard for viewing cached summaries
 
 ## Setup
 1. Install dependencies:
@@ -18,11 +19,12 @@ reviewing past summaries.
 2. Create a `.env` file with the required settings:
 
    TELEGRAM_BOT_TOKEN=your-telegram-bot-token
-   MONGODB_URI=mongodb://localhost:27017
-   MONGODB_DATABASE=infodigest
-   MONGODB_COLLECTION=digest_logs
    MAX_TEXT_LENGTH=100000
    REQUEST_TIMEOUT=30
+
+   # Cache Configuration
+   CACHE_DIR=cache
+   # CACHE_TTL_DAYS=30  # Optional: Cache expiration in days (leave empty for no expiration)
 
    # AI provider selection
    AI_PROVIDER=qwen   # or openai
@@ -48,8 +50,11 @@ reviewing past summaries.
 
 ## Usage
 - Send a URL to the Telegram bot and wait for a summary.
-- The bot logs each request to MongoDB for later review in the dashboard.
+- The bot caches summaries by URL, so re-sending the same URL returns instantly from cache.
+- Use the dashboard to view all cached summaries and statistics.
 
 ## Notes
 - YouTube summaries require captions to be available.
 - If your keys are quoted in `.env`, remove the quotes for Qwen/OpenAI keys.
+- Cache files are stored in the `cache/` directory (configurable via `CACHE_DIR`).
+- Set `CACHE_TTL_DAYS` to automatically expire old cache entries.
