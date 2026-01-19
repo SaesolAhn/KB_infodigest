@@ -25,11 +25,7 @@ def init_database() -> Optional[DatabaseService]:
     """Initialize database connection with error handling."""
     try:
         config = get_config()
-        db = DatabaseService(
-            uri=config.mongodb_uri,
-            database=config.mongodb_database,
-            collection=config.mongodb_collection
-        )
+        db = DatabaseService(db_path=config.db_path)
         db.connect()
         return db
     except ConfigurationError as e:
@@ -38,7 +34,7 @@ def init_database() -> Optional[DatabaseService]:
         return None
     except DatabaseError as e:
         st.error(f"⚠️ Database Error: {e}")
-        st.info("Please ensure MongoDB is running and accessible.")
+        st.info("Please ensure the database file path is accessible.")
         return None
 
 
@@ -133,6 +129,10 @@ def render_log_card(log: DigestLog):
         # URL
         st.markdown(f"🔗 [{log.url}]({log.url})")
         
+        # User comment if provided
+        if log.user_comment:
+            st.info(f"💬 **Comment:** {log.user_comment}")
+        
         # Error indicator
         if log.error:
             st.error(f"❌ Error: {log.error}")
@@ -204,8 +204,7 @@ def main():
     st.markdown("---")
     st.caption(
         "InfoDigest Dashboard • "
-        f"Connected to: {db.database_name} • "
-        f"Collection: {db.collection_name}"
+        f"Database: {db.db_path}"
     )
 
 

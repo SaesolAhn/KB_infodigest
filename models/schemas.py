@@ -1,5 +1,5 @@
 """
-Data models and schemas for MongoDB documents.
+Data models and schemas for database records.
 """
 
 from dataclasses import dataclass, field, asdict
@@ -28,13 +28,14 @@ class ContentType(str, Enum):
 @dataclass
 class DigestLog:
     """
-    Schema for digest log entries stored in MongoDB.
+    Schema for digest log entries stored in the database.
     
     Attributes:
         url: The original URL that was processed
         title: The extracted or generated title of the content
         content_type: Type of content (Video/Article/Report)
         summary: The AI-generated summary in markdown format
+        user_comment: Optional user comment provided with the URL
         raw_text_length: Character count of extracted text
         timestamp: When the digest was created
         chat_id: Telegram chat/channel ID
@@ -46,6 +47,7 @@ class DigestLog:
     title: str
     content_type: ContentType
     summary: str
+    user_comment: Optional[str] = None
     timestamp: datetime = field(default_factory=datetime.utcnow)
     raw_text_length: int = 0
     chat_id: Optional[int] = None
@@ -54,17 +56,17 @@ class DigestLog:
     error: Optional[str] = None
     
     def to_dict(self) -> dict:
-        """Convert to dictionary for MongoDB insertion."""
+        """Convert to dictionary for database operations."""
         data = asdict(self)
         data["content_type"] = self.content_type.value
         return data
     
     @classmethod
     def from_dict(cls, data: dict) -> "DigestLog":
-        """Create instance from MongoDB document."""
+        """Create instance from database record."""
         data = data.copy()
-        if "_id" in data:
-            del data["_id"]
+        if "id" in data:
+            del data["id"]
         if isinstance(data.get("content_type"), str):
             # Map display value back to enum
             type_mapping = {

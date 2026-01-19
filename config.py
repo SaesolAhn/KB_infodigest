@@ -25,10 +25,8 @@ class Config:
     # Telegram Bot
     telegram_token: str
     
-    # MongoDB
-    mongodb_uri: str = "mongodb://localhost:27017"
-    mongodb_database: str = "infodigest"
-    mongodb_collection: str = "digest_logs"
+    # SQLite Database
+    db_path: str = "data/infodigest.db"
     
     # Processing limits
     max_text_length: int = 100000  # Max characters to send to LLM
@@ -54,9 +52,7 @@ class Config:
         
         return cls(
             telegram_token=telegram_token,
-            mongodb_uri=os.getenv("MONGODB_URI", "mongodb://localhost:27017"),
-            mongodb_database=os.getenv("MONGODB_DATABASE", "infodigest"),
-            mongodb_collection=os.getenv("MONGODB_COLLECTION", "digest_logs"),
+            db_path=os.getenv("DB_PATH", "data/infodigest.db"),
             max_text_length=int(os.getenv("MAX_TEXT_LENGTH", "100000")),
             request_timeout=int(os.getenv("REQUEST_TIMEOUT", "30")),
         )

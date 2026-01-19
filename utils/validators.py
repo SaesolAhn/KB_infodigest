@@ -3,7 +3,7 @@ URL validation and content type detection utilities.
 """
 
 import re
-from typing import Optional
+from typing import Optional, Tuple
 from urllib.parse import urlparse
 
 
@@ -139,4 +139,36 @@ def extract_youtube_video_id(url: str) -> Optional[str]:
             return match.group(1)
     
     return None
+
+
+def extract_comment_and_url(text: str) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Extract user comment and URL from a text message.
+    
+    The comment can appear before or after the URL.
+    
+    Args:
+        text: The text message containing URL and optional comment
+        
+    Returns:
+        Tuple of (comment, url) where comment can be None if not provided
+    """
+    # Find the URL in the text
+    url_match = URL_PATTERN.search(text)
+    if not url_match:
+        return None, None
+    
+    url = url_match.group(0)
+    url_start = url_match.start()
+    url_end = url_match.end()
+    
+    # Extract text before and after URL
+    text_before = text[:url_start].strip()
+    text_after = text[url_end:].strip()
+    
+    # Combine text before and after, prioritizing text before URL
+    comment = text_before if text_before else text_after
+    comment = comment if comment else None
+    
+    return comment, url
 

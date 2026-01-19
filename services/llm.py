@@ -3,6 +3,7 @@ LLM Service for InfoDigest Bot.
 Handles AI summarization using the unified AI client.
 """
 
+import re
 from typing import Optional, Callable
 
 from models.schemas import ContentType
@@ -14,31 +15,33 @@ class LLMError(Exception):
 
 
 # The strict summary format prompt
-SUMMARY_PROMPT_TEMPLATE = """You are an expert content summarizer. Analyze the following {content_type} content and provide a structured summary.
+SUMMARY_PROMPT_TEMPLATE = """You are an expert content summarizer. Analyze the following content and provide a concise, objective summary.
 
 You MUST follow this EXACT Markdown format:
 
-**[Title of Content]**
-*Type: {content_type_display}*
+# [Eye-Catching Title]
+*Create a compelling, attention-grabbing title that captures the essence*
 
-**One-Line Gist:**
-[1 sentence takeaway - the most important insight]
+**핵심요약:**
+[One concise sentence - the most essential takeaway from the original content]
 
-**Key Points:**
-- [Point 1 - most important]
-- [Point 2]
-- [Point 3]
+**주요 내용:**
+- [Essential point 1 - from original content only]
 
-**Actionable Insight:**
-[Relevance to market/investment - what should the reader do with this information?]
+- [Essential point 2 - from original content only]
 
-RULES:
-1. The title should be concise and descriptive
-2. The one-line gist must be exactly ONE sentence
-3. Key points should be 3-5 bullet points, each being 1-2 sentences max
-4. Actionable insight should focus on practical implications
-5. Keep the entire summary under 300 words
-6. Use clear, professional language
+- [Essential point 3 - from original content only]
+
+CRITICAL RULES:
+1. The title MUST be eye-catching, compelling, and attention-grabbing
+2. Extract ONLY essential information from the original content
+3. Minimize text - be extremely concise, focus on fundamentals only
+4. NO subjective interpretation - summarize what the original says, NOT its implications
+5. NO analysis of what it means or what should be done - only what was said
+6. Keep the entire summary under 150 words
+7. Use clear, direct language
+8. Focus on facts and key points from the original content only
+9. MANDATORY: There MUST be a blank line between each bullet point in "주요 내용" section - each point must be separated by an empty line
 
 CONTENT TO SUMMARIZE:
 {content}
@@ -92,14 +95,8 @@ class LLMService:
         if len(content) > max_length:
             content = content[:max_length] + "\n\n[Content truncated...]"
         
-        # Get display name for content type
-        content_type_enum = ContentType.from_string(content_type)
-        content_type_display = content_type_enum.value
-        
-        # Build the prompt
+        # Build the prompt (no content_type needed)
         prompt = SUMMARY_PROMPT_TEMPLATE.format(
-            content_type=content_type.lower(),
-            content_type_display=content_type_display,
             content=content
         )
         
@@ -107,12 +104,60 @@ class LLMService:
             # Generate summary using configured provider
             summary = self._call_ai(prompt, temperature=0.3)
             if summary:
+                # Post-process to ensure spacing between bullet points
+                summary = self._ensure_bullet_spacing(summary)
                 return summary.strip()
             raise LLMError("Empty response from AI model")
         except self._ai_error as e:
             raise LLMError(f"Failed to generate summary: {str(e)}") from e
         except Exception as e:
             raise LLMError(f"Failed to generate summary: {str(e)}") from e
+    
+    def _ensure_bullet_spacing(self, text: str) -> str:
+        """
+        Ensure proper spacing between bullet points in the summary.
+        
+        Args:
+            text: The summary text
+            
+        Returns:
+            Text with ensured spacing between bullet points
+        """
+        # Find the "주요 내용:" section
+        lines = text.split('\n')
+        result_lines = []
+        in_key_points = False
+        
+        for i, line in enumerate(lines):
+            # Check if we're entering the key points section
+            if '**주요 내용:**' in line or '주요 내용:' in line:
+                in_key_points = True
+                result_lines.append(line)
+                continue
+            
+            # Check if we're leaving the key points section (next section starts)
+            if in_key_points and line.strip() and not line.strip().startswith('-'):
+                # Check if it's a new section (starts with ** or #)
+                if line.strip().startswith('**') or line.strip().startswith('#'):
+                    in_key_points = False
+                    result_lines.append(line)
+                    continue
+            
+            # If we're in key points section and this is a bullet point
+            if in_key_points and line.strip().startswith('-'):
+                # Ensure there's a blank line before this bullet (except the first one)
+                if result_lines and result_lines[-1].strip() and not result_lines[-1].strip().startswith('-'):
+                    result_lines.append('')  # Add blank line before bullet
+                result_lines.append(line)
+                # Ensure there's a blank line after this bullet (if not last bullet)
+                if i + 1 < len(lines):
+                    next_line = lines[i + 1]
+                    if next_line.strip() and next_line.strip().startswith('-'):
+                        result_lines.append('')  # Add blank line after bullet
+            else:
+                result_lines.append(line)
+        
+        return '\n'.join(result_lines)
     
     def test_connection(self) -> bool:
         """

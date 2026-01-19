@@ -143,8 +143,23 @@ class ContentExtractor:
             raise ExtractionError(f"Could not extract video ID from URL: {url}")
         
         try:
+            # Create API instance
+            yt_api = YouTubeTranscriptApi()
+            
             # Try to get transcript, preferring English
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            try:
+                transcript_list = yt_api.list(video_id)
+            except VideoUnavailable:
+                raise ExtractionError("Video is unavailable or private. Please check if the video exists and is publicly accessible.")
+            except Exception as e:
+                # Catch any other errors from list
+                error_msg = str(e).lower()
+                if "unavailable" in error_msg or "private" in error_msg:
+                    raise ExtractionError("Video is unavailable or private. Please check if the video exists and is publicly accessible.")
+                elif "not found" in error_msg:
+                    raise ExtractionError("Video not found. Please check if the URL is correct.")
+                else:
+                    raise ExtractionError(f"Failed to access YouTube video: {str(e)}")
             
             # Try to find an English transcript first
             transcript = None
@@ -173,7 +188,8 @@ class ContentExtractor:
             transcript_data = transcript.fetch()
             
             # Combine transcript segments into full text
-            text_parts = [entry['text'] for entry in transcript_data]
+            # transcript_data is a FetchedTranscript object containing FetchedTranscriptSnippet objects
+            text_parts = [snippet.text for snippet in transcript_data]
             full_text = ' '.join(text_parts)
             
             # Clean up the text

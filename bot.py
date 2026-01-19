@@ -25,7 +25,7 @@ from services.extractor import (
 )
 from services.llm import LLMService, LLMError
 from services.database import DatabaseService, DatabaseError
-from utils.validators import extract_url_from_text, get_content_type
+from utils.validators import extract_url_from_text, get_content_type, extract_comment_and_url
 
 # Configure logging
 logging.basicConfig(
@@ -45,11 +45,7 @@ class InfoDigestBot:
         self.config = get_config()
         self.extractor = ContentExtractor(timeout=self.config.request_timeout)
         self.llm = LLMService()
-        self.db = DatabaseService(
-            uri=self.config.mongodb_uri,
-            database=self.config.mongodb_database,
-            collection=self.config.mongodb_collection
-        )
+        self.db = DatabaseService(db_path=self.config.db_path)
         self.db.connect()
     
     async def start_command(
@@ -60,12 +56,18 @@ class InfoDigestBot:
         """Handle /start command."""
         welcome_message = (
             "👋 **Welcome to InfoDigest Bot!**\n\n"
-            "Send me a URL (article, YouTube video, or PDF) and I'll provide "
-            "a structured summary.\n\n"
+            "Send me a URL (article, YouTube video, or PDF) with an optional comment, "
+            "and I'll provide a concise, eye-catching summary.\n\n"
             "**Supported formats:**\n"
             "• Web articles\n"
             "• YouTube videos (with captions)\n"
             "• PDF documents\n\n"
+            "**How to use:**\n"
+            "Your comment (optional) + URL\n\n"
+            "**You'll receive:**\n"
+            "✨ Eye-catching title\n"
+            "📋 핵심요약 (essential summary)\n"
+            "🔗 Source link\n\n"
             "Just paste a link to get started!"
         )
         await update.message.reply_text(welcome_message, parse_mode="Markdown")
@@ -79,9 +81,15 @@ class InfoDigestBot:
         help_message = (
             "**InfoDigest Bot Help**\n\n"
             "**How to use:**\n"
-            "1. Send any URL (article, YouTube, or PDF)\n"
-            "2. Wait for the AI to analyze the content\n"
-            "3. Receive a structured summary\n\n"
+            "1. Send a URL (article, YouTube, or PDF)\n"
+            "2. Optionally add a comment before or after the URL\n"
+            "3. Wait for the AI to analyze the content\n"
+            "4. Receive a concise, eye-catching summary with:\n"
+            "   ✨ Eye-catching title\n"
+            "   📋 핵심요약 (essential points only)\n"
+            "   🔗 Source link\n\n"
+            "**Example:**\n"
+            "`This is interesting https://example.com/article`\n\n"
             "**Commands:**\n"
             "/start - Welcome message\n"
             "/help - This help message\n\n"
@@ -105,8 +113,8 @@ class InfoDigestBot:
         message_text = update.message.text
         chat_id = update.effective_chat.id
         
-        # Extract URL from message
-        url = extract_url_from_text(message_text)
+        # Extract comment and URL from message
+        user_comment, url = extract_comment_and_url(message_text)
         if not url:
             return  # Silently ignore messages without URLs
         
@@ -143,8 +151,23 @@ class InfoDigestBot:
                 max_length=self.config.max_text_length
             )
             
-            # Step 3: Send summary
-            await processing_msg.edit_text(summary, parse_mode="Markdown")
+            # Step 3: Format and send message
+            # Format: user comment > summary > source link
+            # Make it aesthetic, eye-catching, and intuitive
+            formatted_message_parts = []
+            
+            # Add user comment if provided (with visual separator)
+            if user_comment:
+                formatted_message_parts.append(f"💬 **{user_comment}**\n")
+            
+            # Add summary (already formatted by LLM with eye-catching title)
+            formatted_message_parts.append(f"{summary}\n")
+            
+            # Add source link with visual separator
+            formatted_message_parts.append(f"━━━━━━━━━━━━━━━━━━━━\n🔗 [원문 보기]({url})")
+            
+            formatted_message = "\n".join(formatted_message_parts)
+            await processing_msg.edit_text(formatted_message, parse_mode="Markdown", disable_web_page_preview=True)
             
         except NoTranscriptError:
             error_message = "No transcript available for this video."
@@ -157,10 +180,24 @@ class InfoDigestBot:
         except ExtractionError as e:
             error_message = f"Extraction failed: {str(e)}"
             logger.error(error_message)
-            await processing_msg.edit_text(
-                "⚠️ Could not extract content from this URL. "
-                "Please check if the link is accessible."
-            )
+            
+            # Provide more specific error message based on error content
+            error_str = str(e).lower()
+            if "youtube" in error_str or "transcript" in error_str or "video" in error_str:
+                await processing_msg.edit_text(
+                    "⚠️ Could not extract content from this YouTube video. "
+                    "The video may be private, unavailable, or have no captions available."
+                )
+            elif "pdf" in error_str:
+                await processing_msg.edit_text(
+                    "⚠️ Could not extract content from this PDF. "
+                    "The file may be corrupted, password-protected, or contain only images."
+                )
+            else:
+                await processing_msg.edit_text(
+                    "⚠️ Could not extract content from this URL. "
+                    "Please check if the link is accessible."
+                )
             
         except LLMError as e:
             error_message = f"AI error: {str(e)}"
@@ -191,6 +228,7 @@ class InfoDigestBot:
                 message_id=processing_msg.message_id,
                 processing_time_ms=processing_time_ms,
                 error=error_message,
+                user_comment=user_comment,
             )
         except DatabaseError as e:
             logger.error(f"Failed to save log: {e}")
