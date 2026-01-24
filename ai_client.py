@@ -2,14 +2,26 @@
 ai_client.py - Abstracted AI API client for easy model/provider switching.
 
 Supports multiple AI providers (Qwen, OpenAI, etc.) with a unified interface.
+Includes retry logic with exponential backoff for resilience.
 """
 
 import os
 from typing import Optional, Tuple
 from openai import OpenAI
 from dotenv import load_dotenv
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    before_sleep_log,
+)
+import logging
 
 load_dotenv()
+
+# Get logger for retry logging
+logger = logging.getLogger(__name__)
 
 # AI Provider configuration - required from .env
 AI_PROVIDER = os.getenv("AI_PROVIDER")
@@ -55,19 +67,28 @@ class AIAPIError(Exception):
     pass
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True
+)
 def call_qwen(prompt: str, temperature: float = DEFAULT_TEMPERATURE) -> str:
     """
     Call Qwen API for text generation using OpenAI-compatible client.
-    
+
+    Includes automatic retry with exponential backoff for transient failures.
+
     Args:
         prompt: The prompt to send to Qwen
         temperature: Sampling temperature (default: 0.3)
-        
+
     Returns:
         Generated text response
-        
+
     Raises:
-        AIAPIError: If Qwen API call fails
+        AIAPIError: If Qwen API call fails after retries
     """
     if not QWEN_API_KEY:
         raise AIAPIError(
@@ -131,19 +152,28 @@ def call_qwen(prompt: str, temperature: float = DEFAULT_TEMPERATURE) -> str:
         raise AIAPIError(error_msg)
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True
+)
 def call_openai(prompt: str, temperature: float = DEFAULT_TEMPERATURE) -> str:
     """
     Call OpenAI API for text generation using OpenAI client.
-    
+
+    Includes automatic retry with exponential backoff for transient failures.
+
     Args:
         prompt: The prompt to send to OpenAI
         temperature: Sampling temperature (default: 0.3)
-        
+
     Returns:
         Generated text response
-        
+
     Raises:
-        AIAPIError: If OpenAI API call fails
+        AIAPIError: If OpenAI API call fails after retries
     """
     if not OPENAI_API_KEY:
         raise AIAPIError("OPENAI_API_KEY is not set in environment variables")

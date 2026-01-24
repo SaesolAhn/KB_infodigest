@@ -3,7 +3,7 @@ InfoDigest Telegram Bot - Main Entry Point.
 Processes URLs (Web, YouTube, PDF) and replies with AI-generated summaries.
 """
 
-import logging
+import asyncio
 import time
 from typing import Optional
 
@@ -17,37 +17,41 @@ from telegram.ext import (
 )
 
 from config import get_config, ConfigurationError
-from services.extractor import (
-    ContentExtractor,
+from services.async_extractor import (
+    AsyncContentExtractor,
     ExtractionError,
     NoTranscriptError,
     PDFExtractionError,
 )
 from services.llm import LLMService, LLMError
-from services.database import DatabaseService, DatabaseError
+from services.async_database import AsyncDatabaseService, DatabaseError
 from utils.validators import extract_url_from_text, get_content_type, extract_comment_and_url
+from utils.logging_config import configure_logging, get_logger, bind_context, clear_context
+from utils.rate_limiter import RateLimiter
 
-# Configure logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
+# Configure structured logging
+configure_logging(log_level="INFO", json_format=False)
+logger = get_logger(__name__)
 
 
 class InfoDigestBot:
     """
     Main bot class that orchestrates URL processing and summarization.
     """
-    
+
     def __init__(self):
         """Initialize the bot with configuration."""
         self.config = get_config()
-        self.extractor = ContentExtractor(timeout=self.config.request_timeout)
+        self.extractor = AsyncContentExtractor(timeout=self.config.request_timeout)
         self.llm = LLMService()
-        self.db = DatabaseService(db_path=self.config.db_path)
-        self.db.connect()
-    
+        self.db = AsyncDatabaseService(db_path=self.config.db_path)
+        self.rate_limiter = RateLimiter(max_requests=5, window_seconds=60)
+
+    async def init(self):
+        """Async initialization."""
+        await self.db.init()
+        logger.info("bot_initialized", db_path=self.config.db_path)
+
     async def start_command(
         self,
         update: Update,
@@ -71,7 +75,12 @@ class InfoDigestBot:
             "Just paste a link to get started!"
         )
         await update.message.reply_text(welcome_message, parse_mode="Markdown")
-    
+        logger.info(
+            "command_start",
+            chat_id=update.effective_chat.id,
+            user_id=update.effective_user.id if update.effective_user else None
+        )
+
     async def help_command(
         self,
         update: Update,
@@ -96,7 +105,11 @@ class InfoDigestBot:
             "**Note:** YouTube videos must have captions/subtitles available."
         )
         await update.message.reply_text(help_message, parse_mode="Markdown")
-    
+        logger.info(
+            "command_help",
+            chat_id=update.effective_chat.id
+        )
+
     async def process_message(
         self,
         update: Update,
@@ -104,84 +117,109 @@ class InfoDigestBot:
     ) -> None:
         """
         Process incoming messages containing URLs.
-        
+
         Extracts content, generates summary, and replies.
         """
         if not update.message or not update.message.text:
             return
-        
+
         message_text = update.message.text
         chat_id = update.effective_chat.id
-        
+        user_id = update.effective_user.id if update.effective_user else chat_id
+
+        # Bind context for structured logging
+        bind_context(chat_id=chat_id, user_id=user_id)
+
+        # Check rate limit
+        rate_result = self.rate_limiter.acquire(user_id)
+        if not rate_result.allowed:
+            await update.message.reply_text(
+                f"⏳ {rate_result.message}\n"
+                f"Remaining requests: {rate_result.remaining}"
+            )
+            logger.warning(
+                "rate_limit_exceeded",
+                reset_in=rate_result.reset_in_seconds
+            )
+            clear_context()
+            return
+
         # Extract comment and URL from message
         user_comment, url = extract_comment_and_url(message_text)
         if not url:
+            clear_context()
             return  # Silently ignore messages without URLs
-        
+
         content_type = get_content_type(url)
         if not content_type:
             await update.message.reply_text(
                 "⚠️ Could not determine the content type for this URL."
             )
+            clear_context()
             return
-        
+
         # Send processing indicator
         processing_msg = await update.message.reply_text(
             "🔄 Processing your link... Please wait."
         )
-        
+
         start_time = time.time()
         error_message: Optional[str] = None
         summary: str = ""
         title: str = ""
         raw_text_length: int = 0
-        
+
         try:
             # Step 1: Extract content
-            logger.info(f"Extracting content from: {url}")
-            text, title, content_type = self.extractor.extract(url)
+            logger.info("extraction_started", url=url, content_type=content_type)
+            text, title, content_type = await self.extractor.extract(url)
             raw_text_length = len(text)
-            
+            logger.info(
+                "extraction_completed",
+                title=title,
+                text_length=raw_text_length
+            )
+
             # Step 2: Generate summary
-            logger.info(f"Generating summary for: {title}")
+            logger.info("summarization_started", title=title)
             summary = self.llm.summarize(
                 content=text,
                 content_type=content_type,
                 title=title,
                 max_length=self.config.max_text_length
             )
-            
+            logger.info("summarization_completed")
+
             # Step 3: Format and send message
-            # Format: user comment > summary > source link
-            # Make it aesthetic, eye-catching, and intuitive
             formatted_message_parts = []
-            
-            # Add user comment if provided (with visual separator)
+
             if user_comment:
                 formatted_message_parts.append(f"💬 **{user_comment}**\n")
-            
-            # Add summary (already formatted by LLM with eye-catching title)
+
             formatted_message_parts.append(f"{summary}\n")
-            
-            # Add source link with visual separator
             formatted_message_parts.append(f"━━━━━━━━━━━━━━━━━━━━\n🔗 [원문 보기]({url})")
-            
+
             formatted_message = "\n".join(formatted_message_parts)
-            await processing_msg.edit_text(formatted_message, parse_mode="Markdown", disable_web_page_preview=True)
-            
+            await processing_msg.edit_text(
+                formatted_message,
+                parse_mode="Markdown",
+                disable_web_page_preview=True
+            )
+
         except NoTranscriptError:
             error_message = "No transcript available for this video."
             await processing_msg.edit_text(f"⚠️ {error_message}")
-            
+            logger.warning("no_transcript", url=url)
+
         except PDFExtractionError as e:
             error_message = str(e)
             await processing_msg.edit_text(f"⚠️ {error_message}")
-            
+            logger.warning("pdf_extraction_failed", url=url, error=error_message)
+
         except ExtractionError as e:
             error_message = f"Extraction failed: {str(e)}"
-            logger.error(error_message)
-            
-            # Provide more specific error message based on error content
+            logger.error("extraction_failed", url=url, error=error_message)
+
             error_str = str(e).lower()
             if "youtube" in error_str or "transcript" in error_str or "video" in error_str:
                 await processing_msg.edit_text(
@@ -198,27 +236,27 @@ class InfoDigestBot:
                     "⚠️ Could not extract content from this URL. "
                     "Please check if the link is accessible."
                 )
-            
+
         except LLMError as e:
             error_message = f"AI error: {str(e)}"
-            logger.error(error_message)
+            logger.error("llm_failed", error=error_message)
             await processing_msg.edit_text(
                 "⚠️ Failed to generate summary. Please try again later."
             )
-            
+
         except Exception as e:
             error_message = f"Unexpected error: {str(e)}"
-            logger.exception("Unexpected error processing message")
+            logger.exception("unexpected_error", error=error_message)
             await processing_msg.edit_text(
                 "⚠️ An unexpected error occurred. Please try again."
             )
-        
+
         # Calculate processing time
         processing_time_ms = int((time.time() - start_time) * 1000)
-        
+
         # Step 4: Log to database
         try:
-            self.db.save_log(
+            await self.db.save_log(
                 url=url,
                 title=title or "Unknown",
                 content_type=content_type or "web",
@@ -230,20 +268,34 @@ class InfoDigestBot:
                 error=error_message,
                 user_comment=user_comment,
             )
+            logger.info(
+                "digest_saved",
+                processing_time_ms=processing_time_ms,
+                success=error_message is None
+            )
         except DatabaseError as e:
-            logger.error(f"Failed to save log: {e}")
-    
+            logger.error("database_save_failed", error=str(e))
+
+        clear_context()
+
+    async def cleanup(self):
+        """Clean up resources."""
+        await self.extractor.close()
+        logger.info("bot_cleanup_completed")
+
     def run(self) -> None:
         """Start the bot polling loop."""
-        logger.info("Starting InfoDigest Bot...")
-        
+        logger.info("bot_starting")
+
         # Build application
         application = (
             Application.builder()
             .token(self.config.telegram_token)
+            .post_init(self._post_init)
+            .post_shutdown(self._post_shutdown)
             .build()
         )
-        
+
         # Add handlers
         application.add_handler(CommandHandler("start", self.start_command))
         application.add_handler(CommandHandler("help", self.help_command))
@@ -253,15 +305,18 @@ class InfoDigestBot:
                 self.process_message
             )
         )
-        
+
         # Start polling
-        logger.info("Bot is running. Press Ctrl+C to stop.")
+        logger.info("bot_polling_started")
         application.run_polling(allowed_updates=Update.ALL_TYPES)
-    
-    def cleanup(self) -> None:
-        """Clean up resources."""
-        self.extractor.close()
-        self.db.close()
+
+    async def _post_init(self, application):
+        """Called after application initialization."""
+        await self.init()
+
+    async def _post_shutdown(self, application):
+        """Called during shutdown."""
+        await self.cleanup()
 
 
 def main():
@@ -270,16 +325,15 @@ def main():
         bot = InfoDigestBot()
         bot.run()
     except ConfigurationError as e:
-        logger.error(f"Configuration error: {e}")
+        logger.error("configuration_error", error=str(e))
         print(f"\n❌ Configuration Error: {e}")
         print("Please check your .env file and ensure all required variables are set.")
     except KeyboardInterrupt:
-        logger.info("Bot stopped by user")
+        logger.info("bot_stopped_by_user")
     except Exception as e:
-        logger.exception("Fatal error")
+        logger.exception("fatal_error", error=str(e))
         raise
 
 
 if __name__ == "__main__":
     main()
-
