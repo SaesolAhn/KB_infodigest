@@ -24,6 +24,7 @@ class Config:
     
     # Telegram Bot
     telegram_token: str
+    telegram_channel_id: Optional[str] = None
     
     # SQLite Database
     db_path: str = "data/infodigest.db"
@@ -52,6 +53,7 @@ class Config:
         
         return cls(
             telegram_token=telegram_token,
+            telegram_channel_id=os.getenv("TELEGRAM_CHANNEL_ID"),
             db_path=os.getenv("DB_PATH", "data/infodigest.db"),
             max_text_length=int(os.getenv("MAX_TEXT_LENGTH", "100000")),
             request_timeout=int(os.getenv("REQUEST_TIMEOUT", "30")),

@@ -20,28 +20,38 @@ SUMMARY_PROMPT_TEMPLATE = """You are an expert content summarizer. Analyze the f
 You MUST follow this EXACT Markdown format:
 
 # [Eye-Catching Title]
-*Create a compelling, attention-grabbing title that captures the essence*
 
-**핵심요약:**
-[One concise sentence - the most essential takeaway from the original content]
+**AI 핵심요약**
+• [One concise sentence - the most essential takeaway from the original content]
 
-**주요 내용:**
-- [Essential point 1 - from original content only]
+**주요 내용**
+• [Essential point 1 - from original content only]
 
-- [Essential point 2 - from original content only]
+• [Essential point 2 - from original content only]
 
-- [Essential point 3 - from original content only]
+• [Essential point 3 - from original content only]
+
+[3 #hashtags based on keywords]
 
 CRITICAL RULES:
 1. The title MUST be eye-catching, compelling, and attention-grabbing
-2. Extract ONLY essential information from the original content
-3. Minimize text - be extremely concise, focus on fundamentals only
-4. NO subjective interpretation - summarize what the original says, NOT its implications
-5. NO analysis of what it means or what should be done - only what was said
-6. Keep the entire summary under 150 words
-7. Use clear, direct language
-8. Focus on facts and key points from the original content only
-9. MANDATORY: There MUST be a blank line between each bullet point in "주요 내용" section - each point must be separated by an empty line
+2. There MUST be a blank line between the title and "**AI 핵심요약**"
+3. DO NOT use colons after "AI 핵심요약" or "주요 내용"
+4. Use the "•" (circle) symbol for pinpoint bullet points in BOTH "AI 핵심요약" and "주요 내용" sections
+5. DO NOT use periods at the end of bullet points in "주요 내용"
+6. For "주요 내용", you MUST use ONLY information from the original content. DO NOT incorporate user comments or context into these points.
+7. NO blank line after "**주요 내용**" - bullet points start immediately on next line
+8. MANDATORY: There MUST be a blank line between each bullet point in "주요 내용" section (except the first one after the header)
+9. Extract ONLY essential information from the original content
+10. Minimize text - be extremely concise, focus on fundamentals only
+11. NO subjective interpretation - summarize what the original says, NOT its implications
+12. NO analysis of what it means or what should be done - only what was said
+13. Keep the entire summary under 150 words
+14. Use clear, direct language
+15. Focus on facts and key points from the original content only
+16. At the end, generate exactly 3 hashtags starting with #
+{context_instruction}
+{language_instruction}
 
 CONTENT TO SUMMARIZE:
 {content}
@@ -71,7 +81,9 @@ class LLMService:
         content: str,
         content_type: str,
         title: Optional[str] = None,
-        max_length: int = 100000
+        max_length: int = 100000,
+        user_context: Optional[str] = None,
+        translate_to_korean: bool = False
     ) -> str:
         """
         Generate a structured summary of the content.
@@ -81,6 +93,8 @@ class LLMService:
             content_type: Type of content ('youtube', 'web', 'pdf')
             title: Optional title to include (may be overridden by AI)
             max_length: Maximum content length to process
+            user_context: Optional context about what the user wants to focus on
+            translate_to_korean: Whether to translate the summary to Korean
             
         Returns:
             Formatted summary string in Markdown
@@ -95,18 +109,32 @@ class LLMService:
         if len(content) > max_length:
             content = content[:max_length] + "\n\n[Content truncated...]"
         
-        # Build the prompt (no content_type needed)
+        # Build context instruction
+        if user_context:
+            context_instruction = f"\n16. FOCUS AREAS: The user specifically wants to know about: \"{user_context}\"\n    Pay special attention to these aspects in your summary while maintaining the required format."
+        else:
+            context_instruction = ""
+
+        # Build language instruction
+        if translate_to_korean:
+            language_instruction = "\n17. LANGUAGE: Generate the ENTIRE summary in Korean (한국어)."
+        else:
+            language_instruction = "\n17. LANGUAGE: Generate the summary in the same language as the original content."
+        
+        # Build the prompt
         prompt = SUMMARY_PROMPT_TEMPLATE.format(
-            content=content
+            content=content,
+            context_instruction=context_instruction,
+            language_instruction=language_instruction
         )
         
         try:
             # Generate summary using configured provider
             summary = self._call_ai(prompt, temperature=0.3)
             if summary:
-                # Post-process to ensure spacing between bullet points
-                summary = self._ensure_bullet_spacing(summary)
-                return summary.strip()
+                formatted_summary = summary.strip()
+                # Apply spacing rules to ensure consistent layout
+                return self._ensure_bullet_spacing(formatted_summary)
             raise LLMError("Empty response from AI model")
         except self._ai_error as e:
             raise LLMError(f"Failed to generate summary: {str(e)}") from e
@@ -130,13 +158,17 @@ class LLMService:
         
         for i, line in enumerate(lines):
             # Check if we're entering the key points section
-            if '**주요 내용:**' in line or '주요 내용:' in line:
+            # Match "주요 내용" or "AI 핵심요약"
+            is_header = ('주요 내용' in line or 'AI 핵심요약' in line) and ('**' in line or ':' in line or not line.startswith(' '))
+            
+            if is_header:
+                # If we were in key points, we're starting a new one (e.g. going from summary to details)
                 in_key_points = True
                 result_lines.append(line)
                 continue
             
-            # Check if we're leaving the key points section (next section starts)
-            if in_key_points and line.strip() and not line.strip().startswith('-'):
+            # Check if we're leaving the key points section
+            if in_key_points and line.strip() and not (line.strip().startswith('-') or line.strip().startswith('•')):
                 # Check if it's a new section (starts with ** or #)
                 if line.strip().startswith('**') or line.strip().startswith('#'):
                     in_key_points = False
@@ -144,15 +176,19 @@ class LLMService:
                     continue
             
             # If we're in key points section and this is a bullet point
-            if in_key_points and line.strip().startswith('-'):
-                # Ensure there's a blank line before this bullet (except the first one)
-                if result_lines and result_lines[-1].strip() and not result_lines[-1].strip().startswith('-'):
+            if in_key_points and (line.strip().startswith('-') or line.strip().startswith('•')):
+                # Ensure there's a blank line before this bullet (except the first one after a header)
+                prev_line_is_header = result_lines and ('주요 내용' in result_lines[-1] or 'AI 핵심요약' in result_lines[-1])
+                
+                if result_lines and result_lines[-1].strip() and not prev_line_is_header and not (result_lines[-1].strip().startswith('-') or result_lines[-1].strip().startswith('•')):
                     result_lines.append('')  # Add blank line before bullet
+                
                 result_lines.append(line)
+                
                 # Ensure there's a blank line after this bullet (if not last bullet)
                 if i + 1 < len(lines):
                     next_line = lines[i + 1]
-                    if next_line.strip() and next_line.strip().startswith('-'):
+                    if next_line.strip() and (next_line.strip().startswith('-') or next_line.strip().startswith('•')):
                         result_lines.append('')  # Add blank line after bullet
             else:
                 result_lines.append(line)
