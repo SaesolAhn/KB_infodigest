@@ -4,7 +4,7 @@ URL validation and content type detection utilities.
 
 import re
 from typing import Optional, Tuple
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 
 # YouTube URL patterns
@@ -19,6 +19,8 @@ YOUTUBE_PATTERNS = [
 URL_PATTERN = re.compile(
     r'https?://[^\s<>"{}|\\^`\[\]]+'
 )
+
+NAVER_STOCK_HOST_PATTERN = re.compile(r'(^|\.)stock\.naver\.com$', re.IGNORECASE)
 
 
 def is_youtube_url(url: str) -> bool:
@@ -79,6 +81,80 @@ def is_web_url(url: str) -> bool:
         ])
     except Exception:
         return False
+
+
+def is_naver_stock_url(url: str) -> bool:
+    """
+    Check if the URL points to a Naver Stock page.
+
+    Args:
+        url: The URL to check
+
+    Returns:
+        True if URL is under stock.naver.com, False otherwise
+    """
+    if not is_web_url(url):
+        return False
+
+    parsed = urlparse(url)
+    hostname = parsed.hostname or ""
+    return bool(NAVER_STOCK_HOST_PATTERN.search(hostname))
+
+
+def extract_naver_stock_code(value: str) -> Optional[str]:
+    """
+    Extract 6-digit stock code from plain text or Naver Stock URL.
+
+    Supports:
+    - Plain code: 005930
+    - URL path: https://stock.naver.com/domestic/005930/total
+    - URL query: ?code=005930
+
+    Args:
+        value: User input text or URL
+
+    Returns:
+        6-digit stock code or None
+    """
+    if not value:
+        return None
+
+    raw = value.strip()
+
+    # Direct code input
+    direct_match = re.fullmatch(r'\d{6}', raw)
+    if direct_match:
+        return direct_match.group(0)
+
+    # Code embedded in text
+    embedded_match = re.search(r'\b(\d{6})\b', raw)
+    if embedded_match and not is_web_url(raw):
+        return embedded_match.group(1)
+
+    if not is_web_url(raw):
+        return None
+
+    parsed = urlparse(raw)
+
+    # code query parameter
+    query = parse_qs(parsed.query)
+    code_values = query.get("code", [])
+    if code_values:
+        query_code = code_values[0].strip()
+        if re.fullmatch(r'\d{6}', query_code):
+            return query_code
+
+    # /domestic/{code}/... pattern
+    path_match = re.search(r'/domestic/(\d{6})(?:/|$)', parsed.path)
+    if path_match:
+        return path_match.group(1)
+
+    # Last-resort 6-digit segment in URL
+    any_path_match = re.search(r'/(\d{6})(?:/|$)', parsed.path)
+    if any_path_match:
+        return any_path_match.group(1)
+
+    return None
 
 
 def get_content_type(url: str) -> Optional[str]:
@@ -171,4 +247,3 @@ def extract_comment_and_url(text: str) -> Tuple[Optional[str], Optional[str]]:
     comment = comment if comment else None
     
     return comment, url
-

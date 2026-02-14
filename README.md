@@ -5,6 +5,7 @@ InfoDigest is a Telegram bot that summarizes web articles, YouTube videos, and P
 ## Features
 
 - **Telegram Bot** - Send URLs and receive concise AI-generated summaries
+- **Stock Snapshot Command** - Query listed stocks from `stock.naver.com` via `/stock`
 - **Multi-source Support** - Web articles, YouTube videos (with captions), PDF documents
 - **AI Provider Flexibility** - Supports Qwen and OpenAI (easily switchable)
 - **SQLite Database** - Lightweight, serverless storage for all digests
@@ -98,6 +99,20 @@ streamlit run dashboard.py
 **Example:**
 ```
 This looks interesting https://example.com/article
+```
+
+### Stock Info Command
+
+Use `/stock` with a stock name, 6-digit code, or stock.naver.com URL.
+The bot also applies typo-tolerant matching, shows correction notes when auto-resolved, provides tap-to-select candidates for ambiguous matches, and attaches a chart image (price + 매매동향) when available.
+
+```bash
+/stock 삼성전자
+/stock 삼성전ㅈ
+/stock 005930
+/stock NVDA.O
+/stock https://stock.naver.com/domestic/stock/005930
+/stock https://stock.naver.com/worldstock/stock/NVDA.O
 ```
 
 ### Admin Dashboard

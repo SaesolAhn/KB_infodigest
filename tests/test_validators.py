@@ -7,10 +7,12 @@ from utils.validators import (
     is_youtube_url,
     is_pdf_url,
     is_web_url,
+    is_naver_stock_url,
     get_content_type,
     extract_url_from_text,
     extract_youtube_video_id,
     extract_comment_and_url,
+    extract_naver_stock_code,
 )
 
 
@@ -221,3 +223,35 @@ class TestExtractCommentAndUrl:
         comment, url = extract_comment_and_url(text)
         assert comment == "Great article"
         assert url == "https://example.com"
+
+
+class TestNaverStockHelpers:
+    """Tests for stock.naver.com helper functions."""
+
+    def test_is_naver_stock_url_true(self):
+        """stock.naver.com URL should be detected."""
+        assert is_naver_stock_url("https://stock.naver.com/domestic/005930/total") is True
+
+    def test_is_naver_stock_url_false(self):
+        """Non-stock.naver.com URL should return False."""
+        assert is_naver_stock_url("https://example.com/domestic/005930/total") is False
+
+    def test_extract_naver_stock_code_from_plain_code(self):
+        """Extract code from plain 6-digit input."""
+        assert extract_naver_stock_code("005930") == "005930"
+
+    def test_extract_naver_stock_code_from_url_path(self):
+        """Extract code from stock.naver.com domestic path."""
+        assert extract_naver_stock_code("https://stock.naver.com/domestic/005930/total") == "005930"
+
+    def test_extract_naver_stock_code_from_query(self):
+        """Extract code from query string."""
+        assert extract_naver_stock_code("https://stock.naver.com/item?code=035420") == "035420"
+
+    def test_extract_naver_stock_code_from_text(self):
+        """Extract code embedded in plain text."""
+        assert extract_naver_stock_code("check 251270 quickly") == "251270"
+
+    def test_extract_naver_stock_code_invalid(self):
+        """Invalid input should return None."""
+        assert extract_naver_stock_code("no stock code here") is None

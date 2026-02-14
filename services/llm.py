@@ -25,11 +25,7 @@ You MUST follow this EXACT Markdown format:
 • [One concise sentence - the most essential takeaway from the original content]
 
 **주요 내용**
-• [Essential point 1 - from original content only]
-
-• [Essential point 2 - from original content only]
-
-• [Essential point 3 - from original content only]
+{bullet_points}
 
 [3 #hashtags based on keywords]
 
@@ -109,6 +105,22 @@ class LLMService:
         if len(content) > max_length:
             content = content[:max_length] + "\n\n[Content truncated...]"
         
+        # Calculate number of bullet points based on content length
+        content_length = len(content)
+        if content_length < 2000:
+            num_bullets = 3
+        elif content_length < 5000:
+            num_bullets = 4
+        elif content_length < 10000:
+            num_bullets = 5
+        elif content_length < 20000:
+            num_bullets = 6
+        else:
+            num_bullets = 7
+        
+        # Generate bullet point placeholders
+        bullet_points = "\n\n".join([f"• [Essential point {i+1} - from original content only]" for i in range(num_bullets)])
+        
         # Build context instruction
         if user_context:
             context_instruction = f"\n16. FOCUS AREAS: The user specifically wants to know about: \"{user_context}\"\n    Pay special attention to these aspects in your summary while maintaining the required format."
@@ -124,6 +136,7 @@ class LLMService:
         # Build the prompt
         prompt = SUMMARY_PROMPT_TEMPLATE.format(
             content=content,
+            bullet_points=bullet_points,
             context_instruction=context_instruction,
             language_instruction=language_instruction
         )

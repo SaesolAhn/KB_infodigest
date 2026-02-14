@@ -1,7 +1,7 @@
 # InfoDigest Bot Dependencies
 
 # Telegram Bot (async version)
-python-telegram-bot>=21.0
+python-telegram-bot[job-queue]>=21.0
 
 # AI Provider - OpenAI compatible client (Qwen/OpenAI)
 openai>=1.40.0
@@ -27,9 +27,10 @@ httpx>=0.27.0
 aiofiles>=24.1.0                 # Async file operations
 tenacity>=8.2.0                  # Retry logic with exponential backoff
 structlog>=24.1.0                # Structured logging
+matplotlib>=3.9.0                # Stock chart rendering
+pykrx>=1.0.51                    # KRX OHLCV data for candle charts
 
 # Testing
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
 pytest-cov>=4.1.0
-
